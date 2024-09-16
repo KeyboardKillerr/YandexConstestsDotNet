@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.Collections.ObjectModel;
+using System.Text;
 
 namespace YandexConstestsDotNet;
 
@@ -6,210 +7,350 @@ public class Program
 {
     static void Main(string[] args)
     {
-        //Чтение первой строки, получение количества вершин и рёбер.
-        var dimensions = Console.ReadLine()!.Split(' ');
-        var size = int.Parse(dimensions[0]);
-        var connectionCount = int.Parse(dimensions[1]);
+        Solutions.ShortestPath();
+    }
+}
 
-        //Чтение рёбер, запись в список элементов типа Connection.
-        //Connection - структура, которая содержит в себе две переменные типа int,
-        //которые представляют из себя номера связанных вершин.
-        var connections = new List<Connection>(connectionCount);
-        for (int _ = 0; _ < connectionCount; _++)
-        {
-            var connection = Console.ReadLine()!.Split(' ');
-            connections.Add(new Connection(int.Parse(connection[0]), int.Parse(connection[1])));
-        }
-
-        //Создаётся граф на основании списка рёбер и количества вершин,
-        //затем передаётся в функцию которая находит ответ. 
-        var graph = new Graph(connections, size);
-
-        //Еденица вторым аргументом - номер вершины, которую надо найти.
-        //Функция возращает SortedSet<int> - бинарное дерево (красно-чёрное под копотом),
-        //состоящее из номеров вершин найденной комноненты связности.
-        var result = GraphAlgorithms.SearchElementByDfs(graph, 1);
-
-        //Проверка результата на отсутствие найденой вершины, вывод 0 и завершение выполнения.
-        //Вряд ли это возможно, так как в условии написано, что нумерация вершин начинается с 1,
-        //то есть даже если эта вершина ни с кем не будет связана,
-        //то по идее как минимум она одна должна быть в ответе.
+public class Solutions()
+{
+    public static void Dfs()
+    {
+        var (size, edges) = ReadGraphByEdges();
+        var graph = new Graph(edges, size);
+        var result = graph.SearchElementByDfs(1);
         if (result.Count == 0)
         {
             Console.WriteLine(0);
             return;
         }
-
-        //Вывод результата.
         var sb = new StringBuilder();
-        //Итерирование по SortedSet идёт от самого меньшего элемента к самомоу большему.
         foreach (var id in result) sb.Append(id).Append(' ');
         Console.WriteLine(result.Count);
         Console.WriteLine(sb.ToString().Trim());
     }
+
+    public static void ConnectivityElement()
+    {
+        var (size, edges) = ReadGraphByEdges();
+        var graph = new Graph(edges, size);
+        var result = graph.FindComponents();
+        Console.WriteLine(result.Count);
+        if (result.Count == 0) return;
+        var sb = new StringBuilder();
+        foreach (var component in result)
+        {
+            sb.Append(component.Count).Append('\n');
+            foreach (var id in component) sb.Append(id).Append(' ');
+            sb.Remove(sb.Length - 1, 1).Append('\n');
+        }
+        Console.WriteLine(sb.ToString().Trim());
+    }
+
+    public static void Copycat()
+    {
+        var (size, edges) = ReadGraphByEdges();
+        var graph = new Graph(edges, size);
+        if (graph.IsBipartite()) Console.WriteLine("YES");
+        else Console.WriteLine("NO");
+    }
+
+    public static void TopologicalSort()
+    {
+        var (size, edges) = ReadGraphByEdges();
+        var graph = new OrientedGraph(edges, size);
+        var result = graph.Topsort(out bool hasCycle);
+        if (hasCycle)
+        {
+            Console.WriteLine(-1);
+            return;
+        }
+        var sb = new StringBuilder();
+        foreach (var id in result) sb.Append(id).Append(' ');
+        Console.WriteLine(sb.ToString().Trim());
+    }
+
+    public static void ShortestPath()
+    {
+        var graph = new Graph(ReadGraphByAdjencyMatrix());
+        var startEnd = Console.ReadLine()!.Split(' ');
+        Console.WriteLine(graph.ShortestPath(int.Parse(startEnd[0]), int.Parse(startEnd[1])));
+    }
+
+    private static (int size, IEnumerable<Connection> edges) ReadGraphByEdges()
+    {
+        var dimensions = Console.ReadLine()!.Split(' ');
+        var size = int.Parse(dimensions[0]);
+        var edgeCount = int.Parse(dimensions[1]);
+        var edges = new List<Connection>(edgeCount);
+        for (int _ = 0; _ < edgeCount; _++)
+        {
+            var edge = Console.ReadLine()!.Split(' ');
+            edges.Add(new Connection(int.Parse(edge[0]), int.Parse(edge[1])));
+        }
+        return (size, edges);
+    }
+
+    private static int[][] ReadGraphByAdjencyMatrix()
+    {
+        var size = int.Parse(Console.ReadLine()!);
+        var adjencyMatrix = new int[size][];
+        for (int i = 0; i < size; i++) adjencyMatrix[i] = new int[size];
+        for (int i = 0; i < size; i++)
+        {
+            var values = Console.ReadLine()!.Split(' ').Select(int.Parse).ToArray();
+            for (int j = 0; j < size; j++)
+            {
+                adjencyMatrix[i][j] = values[j];
+                adjencyMatrix[j][i] = values[j];
+            }
+        }
+        return adjencyMatrix;
+    }
 }
 
-public class GraphAlgorithms
+public static class GraphAlgorithms
 {
-    //Тот самый метод поиска.
-    //Основан на поиске в глубину.
-    //В аргументы передаётся номер вершины которую надо найти (в вызывающем коде это всегда 1)
-    //и граф в котором искать.
-    public static SortedSet<int> SearchElementByDfs(Graph graph, int id)
+    public static SortedSet<int> SearchElementByDfs(this Graph graph, int id)
     {
-        //SortedSet<int> - бинарное дерево (красно-чёрное под копотом).
-        //В нём будут храниться вершины компоненты связностии, в которой будет найдена единица.
-        //Оно же и будет возвращено методом.
-        //Хранение ответа в такой структуре обслувлено тем что
-        //по условию задачи необходимо вывести веришны компоненты связности по возрастанию;
-        //чтобы не хранить ответ в неупорядоченом списке, а потом сортировать,
-        //думаю, будет лучше сразу всё сохранять в упорядоченном виде.
         SortedSet<int> result = [];
-
-        //Массив посещённых веришн. Все значение по дефолту - false.
         var visited = new bool[graph.Count];
-
-        //Станет true когда вершина с указанным номером (1) будет найдена.
         var found = false;
-
-        //Перебор всех вершин в графе. Тип переменной node - Node.
         foreach (var node in graph.Nodes.Values)
         {
-            //Поиск в глубину из текущей веришны.
             dfs(node);
-
-            //Если после поиска была найдена вершина - вернуть результат,
-            //если нет - обновить дерево (результат).
             if (found) return result;
             result = [];
         }
         return result;
 
-        //Поиск в глубину. На вход принимает вершину
-        //из который будет произведён поиск.
-        //Реккурентная.
         void dfs(Node current)
         {
-            //Если вершина уже была посещена - выйти.
             if (visited[current.Id - 1]) return;
-
-            //Если номер текущей веришны совпадает с искомой - записать true в found. 
             if (current.Id == id) found = true;
-
-            //Пометка текущей вершины как посещённой.
             visited[current.Id - 1] = true;
-
-            //Добавление номера врешины в рузльтат.
             result.Add(current.Id);
-
-            //Перебор всех соседей текущей вершины с последующим вызовом поиска на каждого из них.
             foreach (var neigthbour in current.Neightbours) dfs(neigthbour);
         }
+    }
+
+    public static ICollection<SortedSet<int>> FindComponents(this Graph graph)
+    {
+        Collection<SortedSet<int>> result = [];
+        SortedSet<int> component;
+        var visited = new bool[graph.Count];
+        foreach (var node in graph.Nodes.Values)
+        {
+            if (visited[node.Id - 1]) continue;
+            component = [];
+            dfs(node);
+            result.Add(component);
+        }
+        return result;
+
+        void dfs(Node current)
+        {
+            if (visited[current.Id - 1]) return;
+            visited[current.Id - 1] = true;
+            component.Add(current.Id);
+            foreach (var neigthbour in current.Neightbours) dfs(neigthbour);
+        }
+    }
+
+    public static bool IsBipartite(this Graph graph)
+    {
+        if (graph.Count <= 1) return false;
+        var visited = new Dictionary<int, bool>(graph.Count);
+        var result = true;
+
+        foreach (var node in graph.Nodes.Values)
+        {
+            if (visited.ContainsKey(node.Id)) continue;
+            result &= dfs(node);
+            if (!result) return false;
+        }
+
+        return true;
+
+        bool dfs(Node current, int from = -1, bool flag = false)
+        {
+            if (visited.TryGetValue(current.Id, out bool value)) return value == flag;
+            visited[current.Id] = flag;
+            foreach (var neigthbour in current.Neightbours)
+            {
+                if (neigthbour.Id == from) continue;
+                if (!dfs(neigthbour, current.Id, !flag)) return false;
+            }
+            return true;
+        }
+    }
+
+    public static ICollection<int> Topsort(this OrientedGraph graph, out bool hasCycle)
+    {
+        hasCycle = false;
+        var visited = new bool[graph.Count];
+        var finished = new bool[graph.Count];
+        var order = new Stack<int>(graph.Count);
+
+        foreach (var node in graph.Nodes.Values)
+        {
+            if (visited[node.Id - 1]) continue;
+            if (!dfs(node))
+            {
+                hasCycle = true;
+                return [];
+            }
+        }
+
+        bool dfs(Node current)
+        {
+            if (visited[current.Id - 1])
+            {
+                if (finished[current.Id - 1]) return true;
+                return false;
+            }
+            visited[current.Id - 1] = true;
+            foreach (var neigthbour in current.Neightbours)
+            {
+                if (!dfs(neigthbour)) return false;
+            }
+            finished[current.Id - 1] = true;
+            order.Push(current.Id);
+            return true;
+        }
+
+        var result = new List<int>(order.Count);
+        while(order.Count != 0) result.Add(order.Pop());
+        return result;
+    }
+
+    public static int ShortestPath(this Graph graph, int start, int end)
+    {
+        if (start == end) return 0;
+        var queue = new Queue<Node>();
+        var visited = new HashSet<Node>();
+        var levels = new Dictionary<Node, int>();
+        levels[graph.Nodes[start]] = 0;
+        queue.Enqueue(graph.Nodes[start]);
+
+        while (queue.Count != 0)
+        {
+            var current = queue.Dequeue();
+            if (visited.Contains(current)) continue;
+            if (current.Id == end) return levels[current];
+            foreach (var node in current.Neightbours)
+            {
+                queue.Enqueue(node);
+                levels[node] = levels[current] + 1;
+            }
+            visited.Add(current);
+        }
+
+        return 0;
     }
 }
 
 public class Graph
 {
-    //Свойство aka getter, можно воспринимать просто как поле класса.
-    //При обращении возвращает количество вершин в графе.
     public int Count { get { return Nodes.Count; } }
 
-    //Dictionary aka HashMap или словарь из питона.
-    //Ключ (тип int) - номер вершины, значение (тип Node) - вершина.
     public Dictionary<int, Node> Nodes { get; }
 
-    //Конструктор графа.
-    //В graphRepr передаётся перечисление ребёр (в вызывающем коде сюда передаётся список рёбер)
-    //В size передаётся количество вершин в графе.
-    public Graph(IEnumerable<Connection> graphRepr, int size)
+    public Graph(IEnumerable<Connection> edges, int size)
     {
-        //Инициализация словаря.
         Nodes = new(size);
+        for (int i = 1; i <= size; i++) Add(i);
+        foreach (var conn in edges) Connect(conn.Id1, conn.Id2);
+    }
 
-        //На основании ребёр строится граф.
-        foreach (var conn in graphRepr)
+    public Graph(int[][] adjencyMatrix)
+    {
+        Nodes = new(adjencyMatrix.Length);
+        for (int i = 1; i <= adjencyMatrix.Length; i++) Add(i);
+        for (int i = 0; i < adjencyMatrix.Length; i++)
         {
-            //Добавление в граф новых вершин.
-            //Имеется защита от дублирования.
-            Add(conn.Id1);
-            Add(conn.Id2);
-
-            //Соединяет веришны.
-            //Устраняет петли и кратные рёбра.
-            Connect(conn.Id1, conn.Id2);
+            for (int j = 0; j < adjencyMatrix.Length; j++)
+                if (adjencyMatrix[i][j] == 1) Connect(i + 1, j + 1);
         }
     }
 
-    //Метод добавления новой врешины в граф.
     public void Add(int id)
     {
-        //Если в графе есть вершина с таким номером - ничего не делать и выйти.
         if (Nodes.ContainsKey(id)) return;
-
-        //Создаётся новая вершина с указанным номером и добавляется в словарь под своим же номером.
         Nodes.Add(id, new Node(id));
     }
 
-    //Метод соединения двух вершин.
     public void Connect(int id1, int id2)
     {
-        //Защита от петли.
         if (id1 == id2) return;
-
-        //Довольно сложная для прочтения конструкция.
-        //В кратце если один из двух номеров вершин не будет найден в текущем графе, то произойдёт выход из метода.
-        //Так же здесь создаются две переменные - node1 и node2.
-        //В случае если в графе найдутся веришны с указанными номерам,
-        //то в них будут записаны значения этих вершин (экземпляры класса Node).
         if (!(Nodes.TryGetValue(id1, out Node? node1) && Nodes.TryGetValue(id2, out Node? node2))) return;
-
-        //Присоединение вершин друг к другу.
-        //Так как каждая веришна имеет свой список соединений, граф можно считать ориентированым,
-        //именно поэтому соедение происходит на обеих веришанх, чтобы был путь из node1 в node2 и из node2 в node1.
-
-        //|-------| -----> |-------|
-        //| node1 |        | node2 |
-        //|_______| <----- |_______|
-
-        //Так как Neightbours это HashSet, такое явление как кратные рёбра исключено.
         node1.Neightbours.Add(node2);
         node2.Neightbours.Add(node1);
     }
 }
 
-//Класс вершины. В конструктор передаётся номер вершины.
+public class OrientedGraph
+{
+    public int Count { get { return Nodes.Count; } }
+
+    public Dictionary<int, Node> Nodes { get; }
+
+    public OrientedGraph(IEnumerable<Connection> edges, int size)
+    {
+        Nodes = new(size);
+        for (int i = 1; i <= size; i++) Add(i);
+        foreach (var conn in edges) Connect(conn.Id1, conn.Id2);
+    }
+
+    public void Add(int id)
+    {
+        if (Nodes.ContainsKey(id)) return;
+        Nodes.Add(id, new Node(id));
+    }
+
+    public void Connect(int id1, int id2)
+    {
+        if (id1 == id2) return;
+        if (!(Nodes.TryGetValue(id1, out Node? node1) && Nodes.TryGetValue(id2, out Node? node2))) return;
+        node1.Neightbours.Add(node2);
+    }
+}
+
 public class Node(int id)
 {
-    //Возвращает номер вершины
     public int Id { get; } = id;
-    
-    //Содержит в себе вершины с которыми есть соединение.
-    //Значение уникальны т.к. HashSet.
-    //В С# все ссылочные типы наследуются от object,
-    //который имеет в себе несколько методов с дефолтной имлпементацией и
-    //которые можно переписать в производных классах.
-    //int GetHashcode() один из них. Он возращает хэш-код (типа int) класса - прзнак уникальности
-    //на который полагаются такие коллекции с хэшированием как HashSet или Dictionary.
-    //В данном классе он переписан. Реализацию можно увидеть ниже.
+
     public HashSet<Node> Neightbours { get; } = [];
 
-    //В качестве хэш-кода возращает номер вершины.
-    //Так что даже если два разных экзмепляра будут иметь одинаковый номер,
-    //они будут иметь одинаковый хэш-код и для HashSet будут одним и тем же.
     public override int GetHashCode() => Id;
 
-    //Метод добавления вершин с которыми текущая вершина должна быть соединена.
     public void AddNeightbours(params Node[] nodes)
     {
         foreach (var node in nodes) Neightbours.Add(node);
     }
 }
 
-//Структура ребра.
-//Используются только для получения информации о рёбрах из ввода
-//и дальнейшей передачи в конструктор графа.
-//Id1 - номер первой врешины
-//Id2 - номер второй врешины
+public class SortedNode(int id) : IComparable
+{
+    public int Id { get; } = id;
+
+    public SortedSet<SortedNode> Neightbours { get; } = [];
+
+    public override int GetHashCode() => Id;
+
+    public void AddNeightbours(params SortedNode[] nodes)
+    {
+        foreach (var node in nodes) Neightbours.Add(node);
+    }
+
+    public int CompareTo(object? obj)
+    {
+        if (obj is null) return 1;
+
+        if (obj is not SortedNode node) throw new ArgumentException("Object is not a Node.");
+        return Id.CompareTo(node.Id);
+    }
+}
+
 public readonly struct Connection(int id1, int id2)
 {
     public int Id1 { get; } = id1;
